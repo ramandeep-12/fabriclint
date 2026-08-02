@@ -24,3 +24,11 @@ FabricLint can produce machine-readable JSON for CI/CD integrations:
 
 ```bash
 fabriclint scan examples/broken-project --format json
+
+## CI quality gates
+
+FabricLint can return a non-zero exit code when findings reach a
+configured severity threshold.
+
+```bash
+fabriclint scan . --fail-on high

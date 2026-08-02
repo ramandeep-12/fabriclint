@@ -47,3 +47,62 @@ def test_json_output_for_invalid_path(capsys) -> None:
 
     assert exit_code == 2
     assert "error" in report
+def test_medium_issue_fails_medium_threshold(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    create_broken_notebook(tmp_path)
+
+    exit_code = run_scan(
+        path=str(tmp_path),
+        output_format="console",
+        fail_on="medium",
+    )
+
+    capsys.readouterr()
+
+    assert exit_code == 1
+
+
+def test_medium_issue_does_not_fail_high_threshold(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    create_broken_notebook(tmp_path)
+
+    exit_code = run_scan(
+        path=str(tmp_path),
+        output_format="console",
+        fail_on="high",
+    )
+
+    capsys.readouterr()
+
+    assert exit_code == 0
+
+
+def test_high_issue_fails_high_threshold(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    notebook_directory = tmp_path / "Example.Notebook"
+    notebook_directory.mkdir()
+
+    notebook_file = notebook_directory / "notebook-content.py"
+    notebook_file.write_text(
+        'client_secret = "fake-test-secret"\n',
+        encoding="utf-8",
+    )
+
+    exit_code = run_scan(
+        path=str(tmp_path),
+        output_format="json",
+        fail_on="high",
+    )
+
+    captured = capsys.readouterr()
+    report = json.loads(captured.out)
+
+    assert exit_code == 1
+    assert report["quality_gate"]["passed"] is False
+    assert report["quality_gate"]["threshold"] == "HIGH"

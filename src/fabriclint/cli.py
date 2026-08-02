@@ -13,6 +13,12 @@ SEVERITY_ORDER = {
     "LOW": 2,
 }
 
+SEVERITY_LEVEL = {
+    "LOW": 1,
+    "MEDIUM": 2,
+    "HIGH": 3,
+}
+
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -44,6 +50,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output format. Default: console.",
     )
 
+    scan_parser.add_argument(
+        "--fail-on",
+        choices=["low", "medium", "high"],
+        default=None,
+        help=(
+            "Return exit code 1 when an issue at or above this "
+            "severity is detected."
+        ),
+    )
+
     return parser
 
 
@@ -69,9 +85,29 @@ def sort_findings(findings: list[Finding]) -> list[Finding]:
     )
 
 
+def threshold_reached(
+    findings: list[Finding],
+    fail_on: str | None,
+) -> bool:
+    """Return True when findings reach the configured threshold."""
+
+    if fail_on is None:
+        return False
+
+    required_level = SEVERITY_LEVEL[fail_on.upper()]
+
+    return any(
+        SEVERITY_LEVEL.get(finding.severity.upper(), 0)
+        >= required_level
+        for finding in findings
+    )
+
+
 def print_console_report(
     findings: list[Finding],
     scanned_files: list[Path],
+    fail_on: str | None,
+    failed: bool,
 ) -> None:
     """Print a human-readable report."""
 
@@ -84,23 +120,33 @@ def print_console_report(
 
     if not findings:
         print("No issues detected.")
-        return
+    else:
+        for finding in sort_findings(findings):
+            print(
+                f"{finding.severity:<7} "
+                f"{finding.rule_id:<6} "
+                f"{get_display_path(finding.file_path)}:"
+                f"{finding.line_number}"
+            )
+            print(f"        {finding.message}")
+            print(f"        Suggestion: {finding.suggestion}")
+            print()
 
-    for finding in sort_findings(findings):
+    if fail_on is not None:
+        status = "FAILED" if failed else "PASSED"
+
+        print("-" * 60)
         print(
-            f"{finding.severity:<7} "
-            f"{finding.rule_id:<6} "
-            f"{get_display_path(finding.file_path)}:"
-            f"{finding.line_number}"
+            f"Quality gate: {status} "
+            f"(fail on {fail_on.upper()} or above)"
         )
-        print(f"        {finding.message}")
-        print(f"        Suggestion: {finding.suggestion}")
-        print()
 
 
 def print_json_report(
     findings: list[Finding],
     scanned_files: list[Path],
+    fail_on: str | None,
+    failed: bool,
 ) -> None:
     """Print a machine-readable JSON report."""
 
@@ -108,6 +154,11 @@ def print_json_report(
         "tool": "FabricLint",
         "files_scanned": len(scanned_files),
         "issues_found": len(findings),
+        "quality_gate": {
+            "enabled": fail_on is not None,
+            "threshold": fail_on.upper() if fail_on else None,
+            "passed": not failed,
+        },
         "findings": [
             {
                 "rule_id": finding.rule_id,
@@ -124,7 +175,11 @@ def print_json_report(
     print(json.dumps(report, indent=2))
 
 
-def run_scan(path: str, output_format: str = "console") -> int:
+def run_scan(
+    path: str,
+    output_format: str = "console",
+    fail_on: str | None = None,
+) -> int:
     try:
         findings, scanned_files = scan_path(path)
     except (FileNotFoundError, ValueError) as exc:
@@ -143,16 +198,30 @@ def run_scan(path: str, output_format: str = "console") -> int:
 
         return 2
 
+    failed = threshold_reached(
+        findings=findings,
+        fail_on=fail_on,
+    )
+
     if output_format == "json":
-        print_json_report(findings, scanned_files)
+        print_json_report(
+            findings=findings,
+            scanned_files=scanned_files,
+            fail_on=fail_on,
+            failed=failed,
+        )
     else:
         if not scanned_files:
             print("No notebook-content.py files were found.")
-            return 0
+        else:
+            print_console_report(
+                findings=findings,
+                scanned_files=scanned_files,
+                fail_on=fail_on,
+                failed=failed,
+            )
 
-        print_console_report(findings, scanned_files)
-
-    return 0
+    return 1 if failed else 0
 
 
 def main() -> int:
@@ -163,6 +232,7 @@ def main() -> int:
         return run_scan(
             path=args.path,
             output_format=args.format,
+            fail_on=args.fail_on,
         )
 
     parser.print_help()
