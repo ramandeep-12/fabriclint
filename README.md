@@ -18,3 +18,9 @@ FabricLint scans Fabric `notebook-content.py` files and detects:
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[dev]"
+## JSON output
+
+FabricLint can produce machine-readable JSON for CI/CD integrations:
+
+```bash
+fabriclint scan examples/broken-project --format json
