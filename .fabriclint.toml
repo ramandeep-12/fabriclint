@@ -1,0 +1,19 @@
+[tool.fabriclint]
+
+ignore = []
+
+exclude = [
+    ".venv/**",
+    "build/**",
+    "dist/**"
+]
+
+[tool.fabriclint.per-file-ignores]
+
+"examples/broken-project/**" = [
+    "FL001",
+    "FL002",
+    "FL003",
+    "FL004",
+    "FL005"
+]
