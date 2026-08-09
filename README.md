@@ -32,3 +32,9 @@ configured severity threshold.
 
 ```bash
 fabriclint scan . --fail-on high
+## Discover Fabric items
+
+FabricLint can inventory supported Fabric item directories:
+
+```bash
+fabriclint items .
