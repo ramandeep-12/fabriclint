@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from fabriclint.scanner import scan_path
+from tests.helpers import write_valid_platform
 
 
 def create_notebook(
@@ -75,6 +76,11 @@ def test_root_config_applies_when_scanning_subdirectory(
     broken_project = tmp_path / "examples" / "broken-project"
     notebook_directory = broken_project / "Sales.Notebook"
     notebook_directory.mkdir(parents=True)
+    write_valid_platform(
+        notebook_directory,
+        item_type="Notebook",
+        display_name="Sales",
+    )
 
     notebook_file = notebook_directory / "notebook-content.py"
     notebook_file.write_text(

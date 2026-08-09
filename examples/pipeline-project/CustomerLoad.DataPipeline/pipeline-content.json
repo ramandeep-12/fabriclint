@@ -1,0 +1,10 @@
+{
+  "properties": {
+    "activities": [
+      {
+        "name": "CopyCustomers",
+        "type": "Copy"
+      }
+    ]
+  }
+}

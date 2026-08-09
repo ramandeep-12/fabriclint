@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from fabriclint.scanner import scan_path
-
+from tests.helpers import write_valid_platform
 
 def create_notebook(
     root: Path,
@@ -10,11 +10,20 @@ def create_notebook(
     notebook_directory = root / "SuppressionExample.Notebook"
     notebook_directory.mkdir(parents=True)
 
+    write_valid_platform(
+        notebook_directory,
+        item_type="Notebook",
+        display_name="SuppressionExample",
+    )
+
     notebook_file = notebook_directory / "notebook-content.py"
-    notebook_file.write_text(source, encoding="utf-8")
+
+    notebook_file.write_text(
+        source,
+        encoding="utf-8",
+    )
 
     return notebook_file
-
 
 def test_suppresses_specific_rule(tmp_path: Path) -> None:
     create_notebook(

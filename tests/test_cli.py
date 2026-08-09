@@ -2,15 +2,22 @@ import json
 from pathlib import Path
 
 from fabriclint.cli import run_scan
-
+from tests.helpers import write_valid_platform
 
 def create_broken_notebook(root: Path) -> None:
     notebook_directory = root / "Example.Notebook"
     notebook_directory.mkdir(parents=True)
 
+    write_valid_platform(
+        notebook_directory,
+        item_type="Notebook",
+        display_name="Example",
+    )
+
     notebook_file = notebook_directory / "notebook-content.py"
+
     notebook_file.write_text(
-        'rows = customer_df.collect()\n',
+        "rows = customer_df.collect()\n",
         encoding="utf-8",
     )
 
