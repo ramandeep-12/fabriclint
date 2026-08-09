@@ -3,6 +3,12 @@ import json
 import sys
 from pathlib import Path
 
+from fabriclint.config import load_config
+from fabriclint.items import (
+    FabricItem,
+    discover_fabric_items,
+    summarize_items,
+)
 from fabriclint.models import Finding
 from fabriclint.scanner import scan_path
 
@@ -60,6 +66,24 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    items_parser = subparsers.add_parser(
+        "items",
+        help="Discover Microsoft Fabric items in a project.",
+    )
+
+    items_parser.add_argument(
+        "path",
+        nargs="?",
+        default=".",
+        help="Project directory to inspect. Default: current directory.",
+    )
+
+    items_parser.add_argument(
+        "--format",
+        choices=["console", "json"],
+        default="console",
+        help="Output format. Default: console.",
+    )
     return parser
 
 
@@ -223,6 +247,106 @@ def run_scan(
 
     return 1 if failed else 0
 
+def print_items_console(
+    items: list[FabricItem],
+) -> None:
+    """Print discovered Fabric items as a console report."""
+
+    counts = summarize_items(items)
+
+    print()
+    print("Fabric item discovery")
+    print("=" * 60)
+    print(f"Items found: {len(items)}")
+    print()
+
+    if not items:
+        print("No supported Fabric items were found.")
+        return
+
+    print("Items by type:")
+
+    for item_type, count in counts.items():
+        print(f"  {item_type:<16} {count}")
+
+    print()
+    print("Discovered items:")
+
+    for item in items:
+        print(
+            f"  {item.item_type.upper():<16} "
+            f"{get_display_path(item.path)}"
+        )
+
+def print_items_json(
+    items: list[FabricItem],
+) -> None:
+    """Print discovered Fabric items as JSON."""
+
+    report = {
+        "tool": "FabricLint",
+        "command": "items",
+        "items_found": len(items),
+        "counts": summarize_items(items),
+        "items": [
+            {
+                "name": item.name,
+                "type": item.item_type,
+                "path": get_display_path(item.path),
+            }
+            for item in items
+        ],
+    }
+
+    print(json.dumps(report, indent=2))
+
+
+def run_items(
+    path: str,
+    output_format: str = "console",
+) -> int:
+    """Discover and report Fabric items."""
+
+    try:
+        target_path = Path(path).expanduser().resolve()
+
+        if not target_path.exists():
+            raise FileNotFoundError(
+                f"Path does not exist: {target_path}"
+            )
+
+        config = load_config(target_path)
+        discovered_items = discover_fabric_items(target_path)
+
+        items = [
+            item
+            for item in discovered_items
+            if not config.is_excluded(item.path)
+        ]
+
+    except (FileNotFoundError, ValueError) as exc:
+        if output_format == "json":
+            print(
+                json.dumps(
+                    {
+                        "tool": "FabricLint",
+                        "command": "items",
+                        "error": str(exc),
+                    },
+                    indent=2,
+                )
+            )
+        else:
+            print(f"Error: {exc}", file=sys.stderr)
+
+        return 2
+
+    if output_format == "json":
+        print_items_json(items)
+    else:
+        print_items_console(items)
+
+    return 0
 
 def main() -> int:
     parser = build_parser()
@@ -235,8 +359,15 @@ def main() -> int:
             fail_on=args.fail_on,
         )
 
+    if args.command == "items":
+        return run_items(
+            path=args.path,
+            output_format=args.format,
+        )
+
     parser.print_help()
     return 0
+
 
 
 if __name__ == "__main__":
