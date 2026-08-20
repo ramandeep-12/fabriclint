@@ -663,3 +663,134 @@ def test_if_condition_branches_are_separate_dependency_scopes(
         and "CopyTrue" in finding.message
         for finding in findings
     )
+
+
+def test_duplicate_activity_names_report_fl206(
+    tmp_path: Path,
+) -> None:
+    item = make_pipeline(tmp_path)
+
+    pipeline_data = {
+        "properties": {
+            "activities": [
+                {
+                    "name": "CopyCustomers",
+                    "type": "Copy",
+                    "policy": {
+                        "retry": 2,
+                    },
+                },
+                {
+                    "name": "CopyCustomers",
+                    "type": "Copy",
+                    "policy": {
+                        "retry": 2,
+                    },
+                },
+            ]
+        }
+    }
+
+    (
+        item.path / "pipeline-content.json"
+    ).write_text(
+        json.dumps(pipeline_data),
+        encoding="utf-8",
+    )
+
+    findings = validate_pipeline(item)
+
+    assert any(
+        finding.rule_id == "FL206"
+        for finding in findings
+    )
+
+def test_unique_activity_names_do_not_report_fl206(
+    tmp_path: Path,
+) -> None:
+    item = make_pipeline(tmp_path)
+
+    pipeline_data = {
+        "properties": {
+            "activities": [
+                {
+                    "name": "CopyBronze",
+                    "type": "Copy",
+                    "policy": {
+                        "retry": 2,
+                    },
+                },
+                {
+                    "name": "CopySilver",
+                    "type": "Copy",
+                    "policy": {
+                        "retry": 2,
+                    },
+                },
+            ]
+        }
+    }
+
+    (
+        item.path / "pipeline-content.json"
+    ).write_text(
+        json.dumps(pipeline_data),
+        encoding="utf-8",
+    )
+
+    findings = validate_pipeline(item)
+
+    assert not any(
+        finding.rule_id == "FL206"
+        for finding in findings
+    )
+
+def test_nested_duplicate_activity_names_report_fl206(
+    tmp_path: Path,
+) -> None:
+    item = make_pipeline(tmp_path)
+
+    pipeline_data = {
+        "properties": {
+            "activities": [
+                {
+                    "name": "ProcessCustomers",
+                    "type": "ForEach",
+                    "typeProperties": {
+                        "activities": [
+                            {
+                                "name": "CopyCustomer",
+                                "type": "Copy",
+                                "policy": {
+                                    "retry": 2,
+                                },
+                            },
+                            {
+                                "name": "CopyCustomer",
+                                "type": "Copy",
+                                "policy": {
+                                    "retry": 2,
+                                },
+                            },
+                        ]
+                    },
+                }
+            ]
+        }
+    }
+
+    (
+        item.path / "pipeline-content.json"
+    ).write_text(
+        json.dumps(pipeline_data),
+        encoding="utf-8",
+    )
+
+    findings = validate_pipeline(item)
+
+    assert any(
+        finding.rule_id == "FL206"
+        and "CopyCustomer" in finding.message
+        for finding in findings
+    )
+

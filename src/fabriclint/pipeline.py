@@ -4,6 +4,16 @@ import re
 from fabriclint.items import FabricItem
 from fabriclint.models import Finding
 
+from fabriclint.rules.pipeline_rules import (
+    check_dependencies,
+    check_empty_pipeline,
+    check_hardcoded_guids,
+    check_retry_policies,
+    create_pipeline_finding,
+    validate_dependency_scope,
+    get_child_activity_scopes,
+    check_duplicate_activity_names,
+)
 
 PIPELINE_FILE = "pipeline-content.json"
 GUID_PATTERN = re.compile(
@@ -27,23 +37,6 @@ RETRY_REVIEW_ACTIVITY_TYPES = {
     "RefreshDataFlow",
     "PBISemanticModelRefresh",
 }
-
-def create_pipeline_finding(
-    rule_id: str,
-    severity: str,
-    message: str,
-    suggestion: str,
-    file_path: Path,
-    line_number: int = 1,
-) -> Finding:
-    return Finding(
-        rule_id=rule_id,
-        severity=severity,
-        message=message,
-        suggestion=suggestion,
-        file_path=file_path,
-        line_number=line_number,
-    )
 
 def get_nested_activities(
     activity: dict,
@@ -140,70 +133,7 @@ def iter_all_activities(
         yield from iter_all_activities(nested)
 
 
-def validate_dependency_scope(
-    activities: list,
-    pipeline_path: Path,
-) -> list[Finding]:
-    """Validate dependsOn references within one activity scope."""
 
-    findings: list[Finding] = []
-
-    valid_names = {
-        activity.get("name")
-        for activity in activities
-        if isinstance(activity, dict)
-        and isinstance(activity.get("name"), str)
-    }
-
-    for activity in activities:
-
-        if not isinstance(activity, dict):
-            continue
-
-        activity_name = activity.get(
-            "name",
-            "<unnamed activity>",
-        )
-
-        dependencies = activity.get(
-            "dependsOn",
-            [],
-        )
-
-        if isinstance(dependencies, list):
-
-            for dependency in dependencies:
-
-                if not isinstance(dependency, dict):
-                    continue
-
-                referenced_activity = dependency.get(
-                    "activity"
-                )
-
-                if (
-                    isinstance(referenced_activity, str)
-                    and referenced_activity not in valid_names
-                ):
-                    findings.append(
-                        create_pipeline_finding(
-                            rule_id="FL205",
-                            severity="HIGH",
-                            message=(
-                                f"Activity '{activity_name}' depends "
-                                f"on unknown activity "
-                                f"'{referenced_activity}'."
-                            ),
-                            suggestion=(
-                                "Update the dependsOn reference to "
-                                "an existing activity or restore the "
-                                "missing activity."
-                            ),
-                            file_path=pipeline_path,
-                        )
-                    )
-
-    return findings
 
 def validate_dependencies_recursive(
     activities: list,
@@ -241,84 +171,6 @@ def validate_dependencies_recursive(
 
     return findings
 
-def get_child_activity_scopes(
-    activity: dict,
-) -> list[list]:
-    """Return separate nested activity scopes."""
-
-    scopes: list[list] = []
-
-    activity_type = activity.get("type")
-    type_properties = activity.get(
-        "typeProperties",
-        {},
-    )
-
-    if not isinstance(type_properties, dict):
-        return scopes
-
-    # ForEach / Until
-    if activity_type in {"ForEach", "Until"}:
-        child_activities = type_properties.get(
-            "activities",
-            [],
-        )
-
-        if isinstance(child_activities, list):
-            scopes.append(child_activities)
-
-    # IfCondition
-    elif activity_type == "IfCondition":
-
-        true_activities = type_properties.get(
-            "ifTrueActivities",
-            [],
-        )
-
-        false_activities = type_properties.get(
-            "ifFalseActivities",
-            [],
-        )
-
-        if isinstance(true_activities, list):
-            scopes.append(true_activities)
-
-        if isinstance(false_activities, list):
-            scopes.append(false_activities)
-
-    # Switch
-    elif activity_type == "Switch":
-
-        default_activities = type_properties.get(
-            "defaultActivities",
-            [],
-        )
-
-        if isinstance(default_activities, list):
-            scopes.append(default_activities)
-
-        cases = type_properties.get(
-            "cases",
-            [],
-        )
-
-        if isinstance(cases, list):
-
-            for case in cases:
-
-                if not isinstance(case, dict):
-                    continue
-
-                case_activities = case.get(
-                    "activities",
-                    [],
-                )
-
-                if isinstance(case_activities, list):
-                    scopes.append(case_activities)
-
-    return scopes
-
 
 
 def validate_pipeline(
@@ -339,7 +191,8 @@ def validate_pipeline(
                 severity="HIGH",
                 message="Missing pipeline-content.json.",
                 suggestion=(
-                    "Restore the Fabric Data Pipeline definition file."
+                    "Restore the Fabric Data Pipeline "
+                    "definition file."
                 ),
                 file_path=pipeline_path,
             )
@@ -348,7 +201,9 @@ def validate_pipeline(
     # FL201
     try:
         data = json.loads(
-            pipeline_path.read_text(encoding="utf-8")
+            pipeline_path.read_text(
+                encoding="utf-8"
+            )
         )
 
     except json.JSONDecodeError as exc:
@@ -356,101 +211,58 @@ def validate_pipeline(
             create_pipeline_finding(
                 rule_id="FL201",
                 severity="HIGH",
-                message="Invalid JSON in pipeline-content.json.",
+                message=(
+                    "Invalid JSON in pipeline-content.json."
+                ),
                 suggestion=(
-                    "Fix the pipeline JSON syntax before deployment."
+                    "Fix the pipeline JSON syntax "
+                    "before deployment."
                 ),
                 file_path=pipeline_path,
                 line_number=exc.lineno,
             )
         ]
 
-    findings: list[Finding] = []
-
-    activities = data.get("properties", {}).get(
+    activities = data.get(
+        "properties",
+        {},
+    ).get(
         "activities",
         [],
     )
 
-    # FL202
-    if not activities:
-        findings.append(
-            create_pipeline_finding(
-                rule_id="FL202",
-                severity="MEDIUM",
-                message="Data Pipeline contains no activities.",
-                suggestion=(
-                    "Verify that the pipeline is intentionally empty."
-                ),
-                file_path=pipeline_path,
-            )
-        )
+    findings: list[Finding] = []
 
-    # FL203
-    pipeline_text = json.dumps(data)
-
-    if GUID_PATTERN.search(pipeline_text):
-        findings.append(
-            create_pipeline_finding(
-                rule_id="FL203",
-                severity="MEDIUM",
-                message=(
-                    "Hard-coded GUID detected in Data Pipeline definition."
-                ),
-                suggestion=(
-                    "Verify that workspace, item, connection, or "
-                    "environment identifiers are parameterized before "
-                    "deployment across environments."
-                ),
-                file_path=pipeline_path,
-            )
-        )
-
-    # FL204
-    for activity in iter_all_activities(activities):
-
-
-        activity_type = activity.get("type")
-        activity_name = activity.get(
-            "name",
-            "<unnamed activity>",
-        )
-
-        if activity_type not in RETRY_REVIEW_ACTIVITY_TYPES:
-            continue
-
-        policy = activity.get("policy")
-
-        retry_count = 0
-
-        if isinstance(policy, dict):
-            retry_value = policy.get("retry", 0)
-
-            if isinstance(retry_value, int):
-                retry_count = retry_value
-
-        if retry_count <= 0:
-            findings.append(
-                create_pipeline_finding(
-                    rule_id="FL204",
-                    severity="MEDIUM",
-                    message=(
-                        f"Activity '{activity_name}' has no "
-                        "explicit retry attempts configured."
-                    ),
-                    suggestion=(
-                        "Review whether this activity should use "
-                        "a retry policy for transient failures. "
-                        "Consider idempotency before enabling retries."
-                    ),
-                    file_path=pipeline_path,
-                )
-            )
-    # --------------------------------------------------
-    # FL205 - Broken activity dependency
-    # --------------------------------------------------
     findings.extend(
-        validate_dependencies_recursive(
+        check_empty_pipeline(
+            activities,
+            pipeline_path,
+        )
+    )
+
+    findings.extend(
+        check_hardcoded_guids(
+            data,
+            pipeline_path,
+        )
+    )
+
+    findings.extend(
+        check_retry_policies(
+            activities,
+            pipeline_path,
+        )
+    )
+
+    findings.extend(
+        check_dependencies(
+            activities,
+            pipeline_path,
+        )
+    )
+
+    findings.extend(
+        check_duplicate_activity_names(
             activities,
             pipeline_path,
         )
