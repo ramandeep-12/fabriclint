@@ -3,7 +3,7 @@ from pathlib import Path
 
 from fabriclint.cli import run_scan
 from tests.helpers import write_valid_platform
-
+from fabriclint.cli import main
 def create_broken_notebook(root: Path) -> None:
     notebook_directory = root / "Example.Notebook"
     notebook_directory.mkdir(parents=True)
@@ -113,3 +113,46 @@ def test_high_issue_fails_high_threshold(
     assert exit_code == 1
     assert report["quality_gate"]["passed"] is False
     assert report["quality_gate"]["threshold"] == "HIGH"
+
+def test_rules_command_lists_rules(
+    capsys,
+) -> None:
+    
+
+    exit_code = main(["rules"])
+
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "FabricLint Rules" in captured.out
+    assert "FL001" in captured.out
+    assert "FL204" in captured.out
+    assert "FL206" in captured.out
+
+def test_rules_command_respects_rule_config(
+    tmp_path,
+    monkeypatch,
+    capsys,
+) -> None:
+
+    config_file = tmp_path / ".fabriclint.toml"
+
+    config_file.write_text(
+        """
+[tool.fabriclint.rules.FL204]
+enabled = false
+severity = "HIGH"
+""",
+        encoding="utf-8",
+    )
+
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = main(["rules"])
+
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "FL204" in captured.out
+    assert "HIGH" in captured.out
+    assert "no" in captured.out
