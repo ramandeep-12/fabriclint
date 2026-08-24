@@ -6,7 +6,9 @@ from fabriclint.config import load_config
 from fabriclint.items import discover_fabric_items
 from fabriclint.pipeline import validate_pipeline
 from fabriclint.platform import validate_item_system_metadata
-
+from fabriclint.config import (
+    apply_rule_overrides,
+)
 NOTEBOOK_FILE_NAME = "notebook-content.py"
 
 
@@ -154,6 +156,10 @@ def scan_path(
             for item in fabric_items
         ):
             scanned_targets.append(notebook_file)
+    all_findings = apply_rule_overrides(
+    all_findings,
+    config,
+    )
 
     return all_findings, scanned_targets
     

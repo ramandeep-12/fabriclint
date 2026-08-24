@@ -2,7 +2,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-
+from fabriclint.rules.registry import RULES
 from fabriclint.config import load_config
 from fabriclint.items import (
     FabricItem,
@@ -24,8 +24,6 @@ SEVERITY_LEVEL = {
     "MEDIUM": 2,
     "HIGH": 3,
 }
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="fabriclint",
@@ -86,13 +84,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     items_parser.add_argument(
-    "--validate",
-    action="store_true",
-    help="Validate Fabric item system metadata.",
-)
+        "--validate",
+        action="store_true",
+        help="Validate Fabric item system metadata.",
+    )
+
+    # NEW: rules command
+    subparsers.add_parser(
+        "rules",
+        help="List all FabricLint rules.",
+    )
+
     return parser
-
-
 def get_display_path(file_path: Path) -> str:
     """Return a readable relative path when possible."""
 
@@ -442,7 +445,10 @@ def main() -> int:
             output_format=args.format,
             validate=args.validate,
         )
-
+    if args.command == "rules":
+        config = load_config(Path.cwd())
+        print_rules(config)
+        return 0
     parser.print_help()
     return 0
 
@@ -450,3 +456,35 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+def print_rules(config) -> None:
+    print()
+    print("FabricLint Rules")
+    print("=" * 85)
+
+    print(
+        f"{'Rule':<8}"
+        f"{'Severity':<12}"
+        f"{'Enabled':<10}"
+        f"{'Category':<12}"
+        f"Description"
+    )
+
+    print("-" * 85)
+
+    for rule_id, rule in sorted(RULES.items()):
+
+        enabled = config.is_rule_enabled(rule_id)
+
+        severity = config.get_rule_severity(
+            rule_id,
+            rule["severity"],
+        )
+
+        print(
+            f"{rule_id:<8}"
+            f"{severity:<12}"
+            f"{'yes' if enabled else 'no':<10}"
+            f"{rule['category']:<12}"
+            f"{rule['description']}"
+        )
