@@ -1,0 +1,30 @@
+{
+  "properties": {
+    "activities": [
+      {
+        "name": "CopyBronze",
+        "type": "Copy",
+        "policy": {
+          "retry": 2,
+          "retryIntervalInSeconds": 30
+        }
+      },
+      {
+        "name": "CopySilver",
+        "type": "Copy",
+        "policy": {
+          "retry": 2,
+          "retryIntervalInSeconds": 30
+        },
+        "dependsOn": [
+          {
+            "activity": "CopyBronze",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

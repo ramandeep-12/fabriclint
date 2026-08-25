@@ -17,3 +17,10 @@ exclude = [
     "FL004",
     "FL005"
 ]
+
+
+[tool.fabriclint.rules.FL203]
+severity = "MEDIUM"
+[tool.fabriclint.rules.FL204]
+enabled = true
+severity = "MEDIUM"

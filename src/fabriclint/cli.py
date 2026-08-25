@@ -2,7 +2,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-
+from fabriclint.rules.registry import RULES
 from fabriclint.config import load_config
 from fabriclint.items import (
     FabricItem,
@@ -11,7 +11,7 @@ from fabriclint.items import (
 )
 from fabriclint.models import Finding
 from fabriclint.scanner import scan_path
-
+from fabriclint.platform import validate_item_system_metadata
 
 SEVERITY_ORDER = {
     "HIGH": 0,
@@ -24,8 +24,6 @@ SEVERITY_LEVEL = {
     "MEDIUM": 2,
     "HIGH": 3,
 }
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="fabriclint",
@@ -84,9 +82,20 @@ def build_parser() -> argparse.ArgumentParser:
         default="console",
         help="Output format. Default: console.",
     )
+
+    items_parser.add_argument(
+        "--validate",
+        action="store_true",
+        help="Validate Fabric item system metadata.",
+    )
+
+    # NEW: rules command
+    subparsers.add_parser(
+        "rules",
+        help="List all FabricLint rules.",
+    )
+
     return parser
-
-
 def get_display_path(file_path: Path) -> str:
     """Return a readable relative path when possible."""
 
@@ -138,7 +147,7 @@ def print_console_report(
     print()
     print("FabricLint scan")
     print("=" * 60)
-    print(f"Files scanned: {len(scanned_files)}")
+    print(f"Items scanned: {len(scanned_files)}")
     print(f"Issues found: {len(findings)}")
     print()
 
@@ -235,20 +244,18 @@ def run_scan(
             failed=failed,
         )
     else:
-        if not scanned_files:
-            print("No notebook-content.py files were found.")
-        else:
-            print_console_report(
-                findings=findings,
-                scanned_files=scanned_files,
-                fail_on=fail_on,
-                failed=failed,
-            )
+        print_console_report(
+            findings=findings,
+            scanned_files=scanned_files,
+            fail_on=fail_on,
+            failed=failed,
+        )
 
     return 1 if failed else 0
 
 def print_items_console(
     items: list[FabricItem],
+    validation_findings: list[Finding] | None = None,
 ) -> None:
     """Print discovered Fabric items as a console report."""
 
@@ -277,9 +284,33 @@ def print_items_console(
             f"  {item.item_type.upper():<16} "
             f"{get_display_path(item.path)}"
         )
+        if validation_findings is None:
+            return
+
+    print()
+    print("Platform metadata validation")
+    print("-" * 60)
+    print(f"Issues found: {len(validation_findings)}")
+    print()
+
+    if not validation_findings:
+        print("All discovered items have valid system metadata.")
+        return
+
+    for finding in sort_findings(validation_findings):
+        print(
+            f"{finding.severity:<7} "
+            f"{finding.rule_id:<6} "
+            f"{get_display_path(finding.file_path)}:"
+            f"{finding.line_number}"
+        )
+        print(f"        {finding.message}")
+        print(f"        Suggestion: {finding.suggestion}")
+        print()
 
 def print_items_json(
     items: list[FabricItem],
+    validation_findings: list[Finding] | None = None,
 ) -> None:
     """Print discovered Fabric items as JSON."""
 
@@ -298,12 +329,37 @@ def print_items_json(
         ],
     }
 
+    if validation_findings is not None:
+        report["validation"] = {
+            "enabled": True,
+            "issues_found": len(validation_findings),
+            "passed": not any(
+                finding.severity == "HIGH"
+                for finding in validation_findings
+            ),
+            "findings": [
+                {
+                    "rule_id": finding.rule_id,
+                    "severity": finding.severity,
+                    "file": get_display_path(
+                        finding.file_path
+                    ),
+                    "line": finding.line_number,
+                    "message": finding.message,
+                    "suggestion": finding.suggestion,
+                }
+                for finding in sort_findings(
+                    validation_findings
+                )
+            ],
+        }
     print(json.dumps(report, indent=2))
 
 
 def run_items(
     path: str,
     output_format: str = "console",
+    validate: bool = False,
 ) -> int:
     """Discover and report Fabric items."""
 
@@ -340,17 +396,41 @@ def run_items(
             print(f"Error: {exc}", file=sys.stderr)
 
         return 2
+    validation_findings: list[Finding] | None = None
+
+    if validate:
+        validation_findings = []
+
+        for item in items:
+            validation_findings.extend(
+                validate_item_system_metadata(item)
+            )
 
     if output_format == "json":
-        print_items_json(items)
+        print_items_json(
+            items=items,
+            validation_findings=validation_findings,
+        )
     else:
-        print_items_console(items)
+        print_items_console(
+            items=items,
+            validation_findings=validation_findings,
+        )
+
+    if validation_findings is not None:
+        has_high_issue = any(
+            finding.severity == "HIGH"
+            for finding in validation_findings
+        )
+
+        if has_high_issue:
+            return 1
 
     return 0
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.command == "scan":
         return run_scan(
@@ -363,8 +443,12 @@ def main() -> int:
         return run_items(
             path=args.path,
             output_format=args.format,
+            validate=args.validate,
         )
-
+    if args.command == "rules":
+        config = load_config(Path.cwd())
+        print_rules(config)
+        return 0
     parser.print_help()
     return 0
 
@@ -372,3 +456,35 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+def print_rules(config) -> None:
+    print()
+    print("FabricLint Rules")
+    print("=" * 85)
+
+    print(
+        f"{'Rule':<8}"
+        f"{'Severity':<12}"
+        f"{'Enabled':<10}"
+        f"{'Category':<12}"
+        f"Description"
+    )
+
+    print("-" * 85)
+
+    for rule_id, rule in sorted(RULES.items()):
+
+        enabled = config.is_rule_enabled(rule_id)
+
+        severity = config.get_rule_severity(
+            rule_id,
+            rule["severity"],
+        )
+
+        print(
+            f"{rule_id:<8}"
+            f"{severity:<12}"
+            f"{'yes' if enabled else 'no':<10}"
+            f"{rule['category']:<12}"
+            f"{rule['description']}"
+        )
